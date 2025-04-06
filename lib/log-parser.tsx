@@ -4,7 +4,7 @@
  * @param prefix The prefix to filter log entries
  * @returns Parsed log data with entries and player list
  */
-export function parseLogFile(content, prefix) {
+export function parseLogFile(content: string, prefix: string) {
   // Split the content into lines
   const lines = content.split(/\r?\n/)
 
@@ -34,7 +34,7 @@ export function parseLogFile(content, prefix) {
 
       return null
     })
-    .filter(Boolean)
+    .filter(Boolean) as { time: string; player: string; fps: number }[]
 
   // Extract unique player names
   const players = [...new Set(entries.map((entry) => entry.player))]

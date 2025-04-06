@@ -9,13 +9,14 @@ import { LogUploader } from "@/components/log-uploader"
 import { parseLogFile } from "@/lib/log-parser"
 import { PlayerSelector } from "@/components/player-selector"
 import { calculateTrendLine } from "@/lib/trend-calculator"
+import { LogData } from "@/lib/types"
 
 export default function Home() {
-  const [logData, setLogData] = useState(null)
-  const [selectedPlayers, setSelectedPlayers] = useState([])
+  const [logData, setLogData] = useState<LogData | null>(null)
+  const [selectedPlayers, setSelectedPlayers] = useState<string[]>([])
   const [prefix, setPrefix] = useState("MWG_FPS")
 
-  const handleFileProcessed = (data) => {
+  const handleFileProcessed = (data: any) => {
     const processedData = parseLogFile(data, prefix)
     setLogData(processedData)
 
@@ -25,15 +26,17 @@ export default function Home() {
     }
   }
 
-  const getPlayerData = (playerName) => {
+  const getPlayerData = (playerName: string) => {
     if (!logData) return { data: [], trend: [] }
 
     const playerData = logData.entries
-      .filter((entry) => entry.player === playerName)
-      .map((entry) => ({
-        time: entry.time,
-        fps: entry.fps,
-      }))
+      ? logData.entries
+          .filter((entry) => entry.player === playerName)
+          .map((entry) => ({
+            time: entry.time,
+            fps: entry.fps,
+          }))
+      : []
 
     const trendData = calculateTrendLine(playerData)
 
