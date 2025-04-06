@@ -3,7 +3,7 @@
  * @param data Array of {time, fps} data points
  * @returns Array of trend line data points
  */
-export function calculateTrendLine(data) {
+export function calculateTrendLine(data: any[]) {
   if (!data || data.length < 2) return []
 
   // Convert timestamps to numeric values (milliseconds since epoch)

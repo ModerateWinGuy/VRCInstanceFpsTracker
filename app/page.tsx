@@ -114,7 +114,7 @@ export default function Home() {
                   </TabsContent>
                   <TabsContent value="average" className="pt-4">
                     <div className="h-[600px] flex flex-col">
-                      <AverageFpsChart players={selectedPlayers} getPlayerData={getPlayerData} />
+                      <AverageFpsChart players={selectedPlayers.map((p) => ({ name: p }))} getPlayerData={getPlayerData} />
                     </div>
                   </TabsContent>
                   <TabsContent value="stats" className="pt-4">

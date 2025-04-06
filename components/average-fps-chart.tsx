@@ -14,11 +14,12 @@ import {
 } from "recharts"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, TrendingDown } from "lucide-react"
+import { AverageFpsChartProps, DataPoint, Player } from "@/lib/types"
 
 // Define the window size for the running average (in milliseconds)
 const DEFAULT_WINDOW_SIZE = 30 * 1000 // 30 seconds
 
-export function AverageFpsChart({ players, getPlayerData }) {
+export function AverageFpsChart({ players, getPlayerData }: AverageFpsChartProps) {
   // State to track if trend line is visible
   const [trendLineVisible, setTrendLineVisible] = useState(true)
   // State to track the window size for the running average
@@ -38,10 +39,10 @@ export function AverageFpsChart({ players, getPlayerData }) {
     }
 
     // Step 1: Collect all data points from all players
-    const allDataPoints = []
+    const allDataPoints: DataPoint[] = []
 
     players.forEach((player) => {
-      const { data } = getPlayerData(player)
+      const { data } = getPlayerData(player.name);
 
       data.forEach((point) => {
         allDataPoints.push({
@@ -54,7 +55,7 @@ export function AverageFpsChart({ players, getPlayerData }) {
     })
 
     // Sort all points by timestamp
-    allDataPoints.sort((a, b) => a.timestamp - b.timestamp)
+    allDataPoints.sort((a, b) => a.timestamp - b.timestamp);
 
     if (allDataPoints.length === 0) {
       return {
@@ -66,15 +67,15 @@ export function AverageFpsChart({ players, getPlayerData }) {
     }
 
     // Step 2: Calculate running average at regular intervals
-    const startTime = allDataPoints[0].timestamp
-    const endTime = allDataPoints[allDataPoints.length - 1].timestamp
+    const startTime = allDataPoints[0].timestamp;
+    const endTime = allDataPoints[allDataPoints.length - 1].timestamp;
 
     // Create time points at regular intervals
-    const interval = Math.min(windowSize / 2, 5000) // Half window size or 5 seconds, whichever is smaller
-    const timePoints = []
+    const interval = Math.min(windowSize / 2, 5000); // Half window size or 5 seconds, whichever is smaller
+    const timePoints = [];
 
     for (let time = startTime; time <= endTime; time += interval) {
-      timePoints.push(time)
+      timePoints.push(time);
     }
 
     // Calculate running average at each time point
@@ -89,15 +90,15 @@ export function AverageFpsChart({ players, getPlayerData }) {
         )
 
         if (pointsInWindow.length === 0) {
-          return null
+          return null;
         }
 
         // Calculate average FPS
-        const totalFps = pointsInWindow.reduce((sum, point) => sum + point.fps, 0)
-        const avgFps = totalFps / pointsInWindow.length
+        const totalFps = pointsInWindow.reduce((sum, point) => sum + point.fps, 0);
+        const avgFps = totalFps / pointsInWindow.length;
 
         // Get unique players in this window
-        const playersInWindow = [...new Set(pointsInWindow.map((p) => p.player))]
+        const playersInWindow = [...new Set(pointsInWindow.map((p) => p.player))];
 
         return {
           x: centerTime,
@@ -112,64 +113,69 @@ export function AverageFpsChart({ players, getPlayerData }) {
       .filter(Boolean) // Remove null values
 
     // Step 3: Calculate trend line
-    let trendPoints = []
+    let trendPoints: { x: number; y: number; time: string }[] = [];
 
     if (runningAverages.length >= 2) {
       // Simple linear regression
-      const n = runningAverages.length
-      let sumX = 0
-      let sumY = 0
-      let sumXY = 0
-      let sumXX = 0
+      const n = runningAverages.length;
+      let sumX = 0;
+      let sumY = 0;
+      let sumXY = 0;
+      let sumXX = 0;
 
       runningAverages.forEach((point) => {
-        sumX += point.x
-        sumY += point.y
-        sumXY += point.x * point.y
-        sumXX += point.x * point.x
+        if (point) {
+          sumX += point.x;
+          sumY += point.y;
+          sumXY += point.x * point.y;
+          sumXX += point.x * point.x;
+        }
       })
 
-      const denominator = n * sumXX - sumX * sumX
+      const denominator = n * sumXX - sumX * sumX;
 
       if (denominator !== 0) {
-        const slope = (n * sumXY - sumX * sumY) / denominator
-        const intercept = (sumY - slope * sumX) / n
+        const slope = (n * sumXY - sumX * sumY) / denominator;
+        const intercept = (sumY - slope * sumX) / n;
 
         // Create trend line points
-        const firstX = runningAverages[0].x
-        const lastX = runningAverages[runningAverages.length - 1].x
+        const validAverages = runningAverages.filter((point) => point !== null);
+        const firstX = validAverages[0].x;
+        const lastX = validAverages[validAverages.length - 1].x;
 
         trendPoints = [
           {
             x: firstX,
             y: slope * firstX + intercept,
-            time: runningAverages[0].time,
+            time: runningAverages[0] ? runningAverages[0].time : "",
           },
           {
             x: lastX,
             y: slope * lastX + intercept,
-            time: runningAverages[runningAverages.length - 1].time,
+            time: runningAverages[runningAverages.length - 1]?.time || "",
           },
-        ]
+        ];
       }
     }
 
     // Calculate domain with padding
-    let minTime = Number.POSITIVE_INFINITY
-    let maxTime = Number.NEGATIVE_INFINITY
-    let minFps = Number.POSITIVE_INFINITY
-    let maxFps = Number.NEGATIVE_INFINITY
+    let minTime = Number.POSITIVE_INFINITY;
+    let maxTime = Number.NEGATIVE_INFINITY;
+    let minFps = Number.POSITIVE_INFINITY;
+    let maxFps = Number.NEGATIVE_INFINITY;
 
     runningAverages.forEach((point) => {
-      minTime = Math.min(minTime, point.x)
-      maxTime = Math.max(maxTime, point.x)
-      minFps = Math.min(minFps, point.y)
-      maxFps = Math.max(maxFps, point.y)
+      if (point) {
+        minTime = Math.min(minTime, point.x);      
+        maxTime = Math.max(maxTime, point.x);
+        minFps = Math.min(minFps, point.y);
+        maxFps = Math.max(maxFps, point.y);
+      }
     })
 
     // Add padding
-    const timeRange = maxTime - minTime
-    const fpsRange = maxFps - minFps || 10 // Prevent zero range
+    const timeRange = maxTime - minTime;
+    const fpsRange = maxFps - minFps || 10; // Prevent zero range
 
     return {
       averageData: runningAverages,
@@ -183,25 +189,25 @@ export function AverageFpsChart({ players, getPlayerData }) {
   }, [players, getPlayerData, windowSize])
 
   // Format the time for display
-  const formatTime = (timestamp) => {
-    if (!timestamp) return ""
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+  const formatTime = (timestamp: any) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
   // Toggle trend line visibility
   const toggleTrendLine = () => {
-    setTrendLineVisible(!trendLineVisible)
+    setTrendLineVisible(!trendLineVisible);
   }
 
   // Toggle reference lines
   const toggleReferenceLines = () => {
-    setShowReferenceLines(!showReferenceLines)
+    setShowReferenceLines(!showReferenceLines);
   }
 
   // Change window size
-  const changeWindowSize = (newSize) => {
-    setWindowSize(newSize)
+  const changeWindowSize = (newSize: number) => {
+    setWindowSize(newSize);
   }
 
   if (players.length === 0) {
@@ -213,7 +219,7 @@ export function AverageFpsChart({ players, getPlayerData }) {
   }
 
   // Custom tooltip component
-  const CustomTooltip = ({ active, payload }) => {
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: any[] }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
       return (
@@ -310,7 +316,7 @@ export function AverageFpsChart({ players, getPlayerData }) {
                   strokeDasharray: "5 5",
                 }}
                 lineType="fitting"
-                shape="none"
+                //shape="none"
               />
             )}
           </ScatterChart>
