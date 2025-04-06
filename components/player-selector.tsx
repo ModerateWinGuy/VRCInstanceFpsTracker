@@ -6,8 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 
-export function PlayerSelector({ players, selectedPlayers, onSelectionChange }) {
-  const togglePlayer = (player) => {
+interface PlayerSelectorProps {
+  players: string[];
+  selectedPlayers: string[];
+  onSelectionChange: (selectedPlayers: string[]) => void;
+}
+
+export function PlayerSelector({ players, selectedPlayers, onSelectionChange }: PlayerSelectorProps) {
+  const togglePlayer = (player: string) => {
     if (selectedPlayers.includes(player)) {
       onSelectionChange(selectedPlayers.filter((p) => p !== player))
     } else {

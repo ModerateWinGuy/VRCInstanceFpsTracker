@@ -4,12 +4,16 @@ import { useState } from "react"
 import { Upload, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
-export function LogUploader({ onFileProcessed }) {
+interface LogUploaderProps {
+  onFileProcessed: (content: string | ArrayBuffer | null) => void;
+}
+
+export function LogUploader({ onFileProcessed }: LogUploaderProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [fileName, setFileName] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
 
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: { preventDefault: () => void; }) => {
     e.preventDefault()
     setIsDragging(true)
   }
@@ -18,29 +22,29 @@ export function LogUploader({ onFileProcessed }) {
     setIsDragging(false)
   }
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     setIsDragging(false)
 
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer.files.length > 0) {
       processFile(e.dataTransfer.files[0])
     }
   }
 
-  const handleFileChange = (e) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       processFile(e.target.files[0])
     }
   }
 
-  const processFile = (file) => {
+  const processFile = (file: File) => {
     setFileName(file.name)
     setIsProcessing(true)
 
     const reader = new FileReader()
 
     reader.onload = (e) => {
-      const content = e.target.result
+      const content = e.target?.result || null
       onFileProcessed(content)
       setIsProcessing(false)
     }
@@ -76,7 +80,7 @@ export function LogUploader({ onFileProcessed }) {
 
         <Button
           variant="outline"
-          onClick={() => document.getElementById("file-upload").click()}
+          onClick={() => document.getElementById("file-upload")!.click()}
           disabled={isProcessing}
         >
           Select File

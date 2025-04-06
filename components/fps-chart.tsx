@@ -19,9 +19,14 @@ import { cn } from "@/lib/utils"
 // Define the maximum time gap in milliseconds (5 minutes)
 const MAX_TIME_GAP = 5 * 60 * 1000
 
-export function FpsChart({ players, getPlayerData }) {
+interface FpsChartProps {
+  players: string[];
+  getPlayerData: (player: string) => { data: { time: string; fps: number }[]; trend?: { time: string; fps: number }[] };
+}
+
+export function FpsChart({ players, getPlayerData }: FpsChartProps) {
   // State to track which series are visible
-  const [visibleSeries, setVisibleSeries] = useState({})
+  const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>({})
   // State to track if trend lines are visible
   const [trendLinesVisible, setTrendLinesVisible] = useState(true)
   // State to track if reference lines are visible
@@ -29,7 +34,7 @@ export function FpsChart({ players, getPlayerData }) {
 
   // Initialize visible series when players change
   useEffect(() => {
-    const initialState = {}
+    const initialState: Record<string, boolean> = {}
     players.forEach((player) => {
       initialState[player] = true
       initialState[`${player} (trend)`] = true
@@ -50,7 +55,7 @@ export function FpsChart({ players, getPlayerData }) {
       "#db2777", // pink-600
     ]
 
-    return players.reduce((acc, player, index) => {
+    return players.reduce((acc: Record<string, string>, player, index) => {
       acc[player] = colors[index % colors.length]
       return acc
     }, {})
@@ -59,8 +64,8 @@ export function FpsChart({ players, getPlayerData }) {
   // Process data for all players
   const { allData, domain, trendData } = useMemo(() => {
     // Collect all data points and convert time to timestamps
-    const allDataPoints = []
-    const allTrendPoints = {}
+    const allDataPoints: { x: number; y: number; time: string; player: string }[] = []
+    const allTrendPoints: Record<string, { x: number; y: number; time: string; player: string }[]> = {}
     let minTime = Number.POSITIVE_INFINITY
     let maxTime = Number.NEGATIVE_INFINITY
     let minFps = Number.POSITIVE_INFINITY
@@ -109,7 +114,7 @@ export function FpsChart({ players, getPlayerData }) {
     allDataPoints.sort((a, b) => a.x - b.x)
 
     // Create player-specific datasets
-    const playerData = {}
+    const playerData: Record<string, { x: number; y: number; time: string; player: string }[]> = {}
     players.forEach((player) => {
       playerData[player] = allDataPoints.filter((point) => point.player === player)
     })
@@ -129,14 +134,14 @@ export function FpsChart({ players, getPlayerData }) {
   }, [players, getPlayerData])
 
   // Format the time for display
-  const formatTime = (timestamp) => {
+  const formatTime = (timestamp: string | number | Date) => {
     if (!timestamp) return ""
     const date = new Date(timestamp)
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   }
 
   // Handle legend click
-  const handleLegendClick = (dataKey) => {
+  const handleLegendClick = (dataKey: string | number) => {
     setVisibleSeries((prev) => ({
       ...prev,
       [dataKey]: !prev[dataKey],
@@ -170,7 +175,7 @@ export function FpsChart({ players, getPlayerData }) {
   }
 
   // Custom tooltip component
-  const CustomTooltip = ({ active, payload }) => {
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: any[] }) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-background border rounded-md shadow-md p-3">
@@ -188,11 +193,11 @@ export function FpsChart({ players, getPlayerData }) {
         </div>
       )
     }
-    return null
+    return null;
   }
 
   // Create custom legend items
-  const legendItems = []
+  const legendItems: { id: string; value: string; color: string; type: string; dataKey: string; visible: boolean; dashed?: boolean }[] = [];
 
   players.forEach((player) => {
     // Add player data series
@@ -203,7 +208,7 @@ export function FpsChart({ players, getPlayerData }) {
       type: "scatter",
       dataKey: player,
       visible: visibleSeries[player] || false,
-    })
+    });
 
     // Add trend line
     legendItems.push({
@@ -214,7 +219,7 @@ export function FpsChart({ players, getPlayerData }) {
       dataKey: `${player} (trend)`,
       dashed: true,
       visible: visibleSeries[`${player} (trend)`] || false,
-    })
+    });
   })
 
   // Calculate reference line values
@@ -304,7 +309,7 @@ export function FpsChart({ players, getPlayerData }) {
                       strokeDasharray: "5 5",
                     }}
                     lineType="fitting"
-                    shape="none"
+                    //shape="none"
                   />
                 ),
             )}
