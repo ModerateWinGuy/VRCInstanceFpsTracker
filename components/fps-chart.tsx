@@ -181,17 +181,15 @@ export function FpsChart({ players, getPlayerData }: FpsChartProps) {
         <div className="bg-background border rounded-md shadow-md p-3">
           <p className="text-sm font-medium">{formatTime(payload[0].payload.x)}</p>
           <div className="mt-2 space-y-1">
-            {payload.map((entry, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: payload[1].color }} />
                 <span className="text-sm">
-                  {entry.payload.player}: {entry.value} FPS
+                  {payload[1].payload.player}: {payload[1].value} FPS
                 </span>
-              </div>
-            ))}
+              </div>            
           </div>
         </div>
-      )
+      ) 
     }
     return null;
   }
