@@ -2,9 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.dev',
+  title: 'VRChat Instance FPS Debugger',
+  description: 'A tool for debugging FPS in VRChat instances over time for performance analysis.',
 }
 
 export default function RootLayout({
