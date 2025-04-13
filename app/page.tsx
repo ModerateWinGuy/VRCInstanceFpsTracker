@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FpsChart } from "@/components/fps-chart"
@@ -9,42 +9,73 @@ import { LogUploader } from "@/components/log-uploader"
 import { parseLogFile } from "@/lib/log-parser"
 import { PlayerSelector } from "@/components/player-selector"
 import { calculateTrendLine } from "@/lib/trend-calculator"
-import { LogData } from "@/lib/types"
+import type {
+  LogData,
+  FpsEntry,
+  PlayerCountEntry,
+  PlayerDataPoint,
+  PlayerCountDataPoint,
+  PlayerData,
+} from "@/lib/types"
 
 export default function Home() {
   const [logData, setLogData] = useState<LogData | null>(null)
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([])
-  const [prefix, setPrefix] = useState("MWG_FPS")
+  const [prefix, setPrefix] = useState<string>("MWG_")
 
-  const handleFileProcessed = (data: any) => {
-    const processedData = parseLogFile(data, prefix)
-    setLogData(processedData)
+  const handleFileProcessed = (data: string): void => {
+    try {
+      const processedData: LogData = parseLogFile(data, prefix)
+      setLogData(processedData)
 
-    // Auto-select first player if available
-    if (processedData.players.length > 0) {
-      setSelectedPlayers([processedData.players[0]])
+      // Auto-select first player if available
+      if (processedData.players.length > 0) {
+        setSelectedPlayers([processedData.players[0]])
+      }
+    } catch (error) {
+      console.error("Error processing log file:", error)
     }
   }
 
-  const getPlayerData = (playerName: string) => {
-    if (!logData) return { data: [], trend: [] }
+  const getPlayerData = (playerName: string): PlayerData => {
+    if (!logData || !logData.entries) return { data: [], trend: [] }
 
-    const playerData = logData.entries
-      ? logData.entries
-          .filter((entry) => entry.player === playerName)
-          .map((entry) => ({
-            time: entry.time,
-            fps: entry.fps,
-          }))
-      : []
+    try {
+      const playerData: PlayerDataPoint[] = logData.entries
+        .filter((entry) => entry.type === "fps" && (entry as FpsEntry).player === playerName)
+        .map((entry) => ({
+          time: entry.time,
+          fps: (entry as FpsEntry).fps,
+        }))
 
-    const trendData = calculateTrendLine(playerData)
+      const trendData: PlayerDataPoint[] = calculateTrendLine(playerData)
 
-    return {
-      data: playerData,
-      trend: trendData,
+      return {
+        data: playerData,
+        trend: trendData,
+      }
+    } catch (error) {
+      console.error(`Error getting data for player ${playerName}:`, error)
+      return { data: [], trend: [] }
     }
   }
+
+  // Extract player count data from log entries
+  const playerCountData = useMemo<PlayerCountDataPoint[]>(() => {
+    if (!logData || !logData.entries) return []
+
+    try {
+      return logData.entries
+        .filter((entry) => entry.type === "playerCount")
+        .map((entry) => ({
+          time: entry.time,
+          count: (entry as PlayerCountEntry).count,
+        }))
+    } catch (error) {
+      console.error("Error extracting player count data:", error)
+      return []
+    }
+  }, [logData])
 
   return (
     <main className="container mx-auto py-8 px-4">
@@ -61,9 +92,9 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-2">
                 <label htmlFor="prefix" className="text-sm font-medium">
-                  Log Prefix:
+                  Base Log Prefix:
                 </label>
                 <input
                   id="prefix"
@@ -71,8 +102,11 @@ export default function Home() {
                   value={prefix}
                   onChange={(e) => setPrefix(e.target.value)}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  placeholder="Enter log prefix"
+                  placeholder="Enter base prefix (e.g., MWG_)"
                 />
+                <p className="text-xs text-muted-foreground">
+                  The system will automatically look for both {prefix}FPS and {prefix}PlayerCount logs
+                </p>
               </div>
               <LogUploader onFileProcessed={handleFileProcessed} />
             </div>
@@ -88,7 +122,7 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <PlayerSelector
-                  players={logData.players}
+                  players={logData.players || []}
                   selectedPlayers={selectedPlayers}
                   onSelectionChange={setSelectedPlayers}
                 />
@@ -109,42 +143,99 @@ export default function Home() {
                   </TabsList>
                   <TabsContent value="individual" className="pt-4">
                     <div className="h-[600px] flex flex-col">
-                      <FpsChart players={selectedPlayers} getPlayerData={getPlayerData} />
+                      <FpsChart
+                        players={selectedPlayers}
+                        getPlayerData={getPlayerData}
+                        playerCountData={playerCountData}
+                      />
                     </div>
                   </TabsContent>
                   <TabsContent value="average" className="pt-4">
                     <div className="h-[600px] flex flex-col">
-                      <AverageFpsChart players={selectedPlayers.map((p) => ({ name: p }))} getPlayerData={getPlayerData} />
+                      <AverageFpsChart
+                        players={selectedPlayers.map((p) => ({ name: p }))}
+                        getPlayerData={getPlayerData}
+                        playerCountData={playerCountData}
+                      />
                     </div>
                   </TabsContent>
                   <TabsContent value="stats" className="pt-4">
                     <div className="grid gap-4">
                       {selectedPlayers.map((player) => {
-                        const playerData = getPlayerData(player).data
-                        const avgFps = playerData.reduce((sum, entry) => sum + entry.fps, 0) / playerData.length
-                        const minFps = Math.min(...playerData.map((entry) => entry.fps))
-                        const maxFps = Math.max(...playerData.map((entry) => entry.fps))
+                        try {
+                          const playerData: PlayerDataPoint[] = getPlayerData(player).data
+                          if (playerData.length === 0) {
+                            return (
+                              <div key={player} className="p-4 border rounded-lg">
+                                <h3 className="font-bold text-lg mb-2">{player}</h3>
+                                <p className="text-muted-foreground">No data available</p>
+                              </div>
+                            )
+                          }
 
-                        return (
-                          <div key={player} className="p-4 border rounded-lg">
-                            <h3 className="font-bold text-lg mb-2">{player}</h3>
-                            <div className="grid grid-cols-3 gap-4">
-                              <div>
-                                <p className="text-sm text-muted-foreground">Average FPS</p>
-                                <p className="text-2xl font-bold">{avgFps.toFixed(1)}</p>
-                              </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground">Min FPS</p>
-                                <p className="text-2xl font-bold">{minFps}</p>
-                              </div>
-                              <div>
-                                <p className="text-sm text-muted-foreground">Max FPS</p>
-                                <p className="text-2xl font-bold">{maxFps}</p>
+                          const avgFps: number =
+                            playerData.reduce((sum, entry) => sum + entry.fps, 0) / playerData.length
+                          const minFps: number = Math.min(...playerData.map((entry) => entry.fps))
+                          const maxFps: number = Math.max(...playerData.map((entry) => entry.fps))
+
+                          return (
+                            <div key={player} className="p-4 border rounded-lg">
+                              <h3 className="font-bold text-lg mb-2">{player}</h3>
+                              <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                  <p className="text-sm text-muted-foreground">Average FPS</p>
+                                  <p className="text-2xl font-bold">{avgFps.toFixed(1)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-sm text-muted-foreground">Min FPS</p>
+                                  <p className="text-2xl font-bold">{minFps}</p>
+                                </div>
+                                <div>
+                                  <p className="text-sm text-muted-foreground">Max FPS</p>
+                                  <p className="text-2xl font-bold">{maxFps}</p>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )
+                          )
+                        } catch (error) {
+                          console.error(`Error rendering stats for player ${player}:`, error)
+                          return (
+                            <div key={player} className="p-4 border rounded-lg">
+                              <h3 className="font-bold text-lg mb-2">{player}</h3>
+                              <p className="text-red-500">Error loading data</p>
+                            </div>
+                          )
+                        }
                       })}
+
+                      {/* Player count stats */}
+                      {playerCountData.length > 0 && (
+                        <div className="p-4 border rounded-lg">
+                          <h3 className="font-bold text-lg mb-2">Player Count</h3>
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Average Players</p>
+                              <p className="text-2xl font-bold">
+                                {(
+                                  playerCountData.reduce((sum, entry) => sum + entry.count, 0) / playerCountData.length
+                                ).toFixed(1)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Min Players</p>
+                              <p className="text-2xl font-bold">
+                                {Math.min(...playerCountData.map((entry) => entry.count))}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Max Players</p>
+                              <p className="text-2xl font-bold">
+                                {Math.max(...playerCountData.map((entry) => entry.count))}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </TabsContent>
                 </Tabs>
@@ -156,4 +247,3 @@ export default function Home() {
     </main>
   )
 }
-

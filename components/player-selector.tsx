@@ -5,15 +5,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-
-interface PlayerSelectorProps {
-  players: string[];
-  selectedPlayers: string[];
-  onSelectionChange: (selectedPlayers: string[]) => void;
-}
+import type { PlayerSelectorProps } from "@/lib/types"
 
 export function PlayerSelector({ players, selectedPlayers, onSelectionChange }: PlayerSelectorProps) {
-  const togglePlayer = (player: string) => {
+  const togglePlayer = (player: string): void => {
     if (selectedPlayers.includes(player)) {
       onSelectionChange(selectedPlayers.filter((p) => p !== player))
     } else {
@@ -86,4 +81,3 @@ export function PlayerSelector({ players, selectedPlayers, onSelectionChange }: 
     </div>
   )
 }
-

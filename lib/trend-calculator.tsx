@@ -1,20 +1,33 @@
+import type { PlayerDataPoint } from "@/lib/types"
+
+interface TrendPoint {
+  time: string
+  fps: number
+}
+
+interface DataPoint {
+  x: number
+  y: number
+  originalTime: string
+}
+
 /**
  * Calculates a linear trend line for FPS data
  * @param data Array of {time, fps} data points
  * @returns Array of trend line data points
  */
-export function calculateTrendLine(data: any[]) {
+export function calculateTrendLine(data: PlayerDataPoint[]): TrendPoint[] {
   if (!data || data.length < 2) return []
 
   // Convert timestamps to numeric values (milliseconds since epoch)
-  const points = data.map((point) => ({
+  const points: DataPoint[] = data.map((point) => ({
     x: new Date(point.time).getTime(),
     y: point.fps,
     originalTime: point.time, // Keep the original time format
   }))
 
   // Calculate linear regression
-  const n = points.length
+  const n: number = points.length
   let sumX = 0
   let sumY = 0
   let sumXY = 0
@@ -28,13 +41,13 @@ export function calculateTrendLine(data: any[]) {
   }
 
   // Calculate slope and y-intercept
-  const denominator = n * sumXX - sumX * sumX
+  const denominator: number = n * sumXX - sumX * sumX
 
   // Avoid division by zero
   if (denominator === 0) return []
 
-  const slope = (n * sumXY - sumX * sumY) / denominator
-  const intercept = (sumY - slope * sumX) / n
+  const slope: number = (n * sumXY - sumX * sumY) / denominator
+  const intercept: number = (sumY - slope * sumX) / n
 
   // Use the actual first and last data points from the original dataset
   // This ensures the trend line spans the entire data range
@@ -51,4 +64,3 @@ export function calculateTrendLine(data: any[]) {
     },
   ]
 }
-

@@ -1,28 +1,27 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import { Upload, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-interface LogUploaderProps {
-  onFileProcessed: (content: string | ArrayBuffer | null) => void;
-}
+import type { LogUploaderProps } from "@/lib/types"
 
 export function LogUploader({ onFileProcessed }: LogUploaderProps) {
-  const [isDragging, setIsDragging] = useState(false)
-  const [fileName, setFileName] = useState("")
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [isDragging, setIsDragging] = useState<boolean>(false)
+  const [fileName, setFileName] = useState<string>("")
+  const [isProcessing, setIsProcessing] = useState<boolean>(false)
 
-  const handleDragOver = (e: { preventDefault: () => void; }) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault()
     setIsDragging(true)
   }
 
-  const handleDragLeave = () => {
+  const handleDragLeave = (): void => {
     setIsDragging(false)
   }
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault()
     setIsDragging(false)
 
@@ -31,25 +30,29 @@ export function LogUploader({ onFileProcessed }: LogUploaderProps) {
     }
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     if (e.target.files && e.target.files.length > 0) {
       processFile(e.target.files[0])
     }
   }
 
-  const processFile = (file: File) => {
+  const processFile = (file: File): void => {
     setFileName(file.name)
     setIsProcessing(true)
 
     const reader = new FileReader()
 
-    reader.onload = (e) => {
+    reader.onload = (e: ProgressEvent<FileReader>): void => {
       const content = e.target?.result || null
-      onFileProcessed(content)
+      if (typeof content === "string") {
+        onFileProcessed(content)
+      } else {
+        console.error("Error: File content is not a string")
+      }
       setIsProcessing(false)
     }
 
-    reader.onerror = () => {
+    reader.onerror = (): void => {
       console.error("Error reading file")
       setIsProcessing(false)
     }
@@ -98,4 +101,3 @@ export function LogUploader({ onFileProcessed }: LogUploaderProps) {
     </div>
   )
 }
-
