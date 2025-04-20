@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useState, useEffect, useCallback, memo } from "react"
 import {
   CartesianGrid,
   ScatterChart,
@@ -12,13 +12,64 @@ import {
   ZAxis,
   ReferenceLine,
 } from "recharts"
-import { Button } from "@/components/ui/button"
-import { TrendingUp, TrendingDown, Users } from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { FpsChartProps, ChartDataPoint, ChartDomain, LegendItem, CustomTooltipProps } from "@/lib/types"
+import { Button } from "@/components/ui/button";
+import { TrendingUp, TrendingDown, Users } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useDebounce } from "@/hooks/use-debounce"
+import type { FpsChartProps, ChartDataPoint, ChartDomain, LegendItem, CustomTooltipProps } from "@/lib/types";
 
 // Define the maximum time gap in milliseconds (5 minutes)
 const MAX_TIME_GAP: number = 5 * 60 * 1000
+
+// Memoize the CustomTooltip component to prevent unnecessary re-renders
+const CustomTooltip = memo(({ active, payload }: CustomTooltipProps) => {
+  if (active && payload && payload.length) {
+    const time: string | number | Date = payload[0]?.payload?.time || payload[0]?.payload?.x
+
+    return (
+      <div className="bg-background border rounded-md shadow-md p-3">
+        <p className="text-sm font-medium">{formatTime(time)}</p>
+        <div className="mt-2 space-y-1">
+          {payload.map((entry, index) => {
+            // Handle player count data
+            if (entry.dataKey === "y" && entry.name === "Player Count") {
+              return (
+                <div key={index} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#f97316" }} />
+                  <span className="text-sm">Players: {entry.value}</span>
+                </div>
+              )
+            }
+
+            // Handle FPS data
+            if (entry.payload.player && entry.value && index == 1) {
+              return (
+                <div key={index} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
+                  <span className="text-sm">
+                    {entry.payload.player}: {entry.value} FPS
+                  </span>
+                </div>
+              )
+            }
+
+            return null
+          })}
+        </div>
+      </div>
+    )
+  }
+  return null
+})
+
+CustomTooltip.displayName = "CustomTooltip"
+
+// Format the time for display - moved outside component to prevent recreation
+const formatTime = (timestamp: string | number | Date): string => {
+  if (!timestamp) return ""
+  const date = new Date(timestamp)
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+}
 
 export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartProps) {
   // State to track which series are visible
@@ -29,6 +80,12 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
   const [showReferenceLines, setShowReferenceLines] = useState<boolean>(true)
   // State to track if player count is visible
   const [playerCountVisible, setPlayerCountVisible] = useState<boolean>(true)
+
+  // Debounce the players array to prevent frequent recalculations
+  const debouncedPlayers = useDebounce(players, 100)
+
+  // Debounce player count data
+  const debouncedPlayerCountData = useDebounce(playerCountData, 100)
 
   // Initialize visible series when players change
   useEffect(() => {
@@ -41,7 +98,7 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
     setVisibleSeries(initialState)
   }, [players])
 
-  // Generate a color palette for the players
+  // Generate a color palette for the players - memoized
   const playerColors = useMemo<Record<string, string>>(() => {
     const colors: string[] = [
       "#2563eb", // blue-600
@@ -54,14 +111,20 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
       "#db2777", // pink-600
     ]
 
-    return players.reduce<Record<string, string>>((acc, player, index) => {
+    return debouncedPlayers.reduce<Record<string, string>>((acc, player, index) => {
       acc[player] = colors[index % colors.length]
       return acc
     }, {})
-  }, [players])
+  }, [debouncedPlayers])
 
-  // Process data for all players
+  // Process data for all players - this is the heavy computation
   const { allData, domain, trendData, processedPlayerCountData, maxPlayerCount } = useMemo(() => {
+    // Use a web worker for heavy calculations if available
+    if (typeof window !== "undefined" && window.Worker) {
+      // This would be the ideal place to offload processing to a web worker
+      // For now, we'll optimize the existing code
+    }
+
     // Collect all data points and convert time to timestamps
     const allDataPoints: ChartDataPoint[] = []
     const allTrendPoints: Record<string, ChartDataPoint[]> = {}
@@ -70,7 +133,7 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
     let minFps: number = Number.POSITIVE_INFINITY
     let maxFps: number = Number.NEGATIVE_INFINITY
 
-    players.forEach((player) => {
+    debouncedPlayers.forEach((player) => {
       const { data, trend } = getPlayerData(player)
 
       // Process player data
@@ -111,7 +174,7 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
 
     // Process player count data
     let maxPlayerCount = 0
-    const processedPlayerCountData: ChartDataPoint[] = playerCountData.map((point) => {
+    const processedPlayerCountData: ChartDataPoint[] = debouncedPlayerCountData.map((point) => {
       const timestamp: number = new Date(point.time).getTime()
       minTime = Math.min(minTime, timestamp)
       maxTime = Math.max(maxTime, timestamp)
@@ -130,7 +193,7 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
 
     // Create player-specific datasets
     const playerData: Record<string, ChartDataPoint[]> = {}
-    players.forEach((player) => {
+    debouncedPlayers.forEach((player) => {
       playerData[player] = allDataPoints.filter((point) => point.player === player)
     })
 
@@ -148,49 +211,93 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
       processedPlayerCountData,
       maxPlayerCount,
     }
-  }, [players, getPlayerData, playerCountData])
+  }, [debouncedPlayers, getPlayerData, debouncedPlayerCountData])
 
-  // Format the time for display
-  const formatTime = (timestamp: string | number | Date): string => {
-    if (!timestamp) return ""
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-  }
-
-  // Handle legend click
-  const handleLegendClick = (dataKey: string | number): void => {
+  // Handle legend click with useCallback to prevent recreation
+  const handleLegendClick = useCallback((dataKey: string | number): void => {
     setVisibleSeries((prev) => ({
       ...prev,
       [dataKey]: !prev[dataKey],
     }))
-  }
+  }, [])
 
-  // Toggle all trend lines
-  const toggleAllTrendLines = (): void => {
-    setTrendLinesVisible(!trendLinesVisible)
+  // Toggle all trend lines with useCallback
+  const toggleAllTrendLines = useCallback((): void => {
+    setTrendLinesVisible((prev) => !prev)
 
     // Update visibility state for all trend lines
-    const updatedVisibility: Record<string, boolean> = { ...visibleSeries }
-    players.forEach((player) => {
-      updatedVisibility[`${player} (trend)`] = !trendLinesVisible
+    setVisibleSeries((prev) => {
+      const updatedVisibility: Record<string, boolean> = { ...prev }
+      debouncedPlayers.forEach((player) => {
+        updatedVisibility[`${player} (trend)`] = !trendLinesVisible
+      })
+      return updatedVisibility
     })
+  }, [debouncedPlayers, trendLinesVisible])
 
-    setVisibleSeries(updatedVisibility)
-  }
+  // Toggle reference lines with useCallback
+  const toggleReferenceLines = useCallback((): void => {
+    setShowReferenceLines((prev) => !prev)
+  }, [])
 
-  // Toggle reference lines
-  const toggleReferenceLines = (): void => {
-    setShowReferenceLines(!showReferenceLines)
-  }
-
-  // Toggle player count
-  const togglePlayerCount = (): void => {
-    setPlayerCountVisible(!playerCountVisible)
+  // Toggle player count with useCallback
+  const togglePlayerCount = useCallback((): void => {
+    setPlayerCountVisible((prev) => !prev)
     setVisibleSeries((prev) => ({
       ...prev,
       playerCount: !prev.playerCount,
     }))
-  }
+  }, [])
+
+  // Create legend items - memoized to prevent recreation on each render
+  const legendItems = useMemo<LegendItem[]>(() => {
+    const items: LegendItem[] = []
+
+    debouncedPlayers.forEach((player) => {
+      // Add player data series
+      items.push({
+        id: player,
+        value: player,
+        color: playerColors[player],
+        type: "scatter",
+        dataKey: player,
+        visible: visibleSeries[player] || false,
+      })
+
+      // Add trend line
+      items.push({
+        id: `${player} (trend)`,
+        value: `${player} (trend)`,
+        color: playerColors[player],
+        type: "line",
+        dataKey: `${player} (trend)`,
+        dashed: true,
+        visible: visibleSeries[`${player} (trend)`] || false,
+      })
+    })
+
+    // Add player count to legend
+    if (processedPlayerCountData.length > 0) {
+      items.push({
+        id: "playerCount",
+        value: "Player Count",
+        color: "#f97316", // orange-500
+        type: "line",
+        dataKey: "playerCount",
+        visible: visibleSeries["playerCount"] || false,
+      })
+    }
+
+    return items
+  }, [debouncedPlayers, playerColors, visibleSeries, processedPlayerCountData.length])
+
+  // Calculate reference line values - memoized
+  const referenceLines = useMemo<number[]>(() => {
+    return [45, 30, 15].filter((fps) => {
+      // Only show reference lines that are within the domain
+      return fps >= domain.y[0] && fps <= domain.y[1]
+    })
+  }, [domain.y])
 
   if (players.length === 0) {
     return (
@@ -199,91 +306,6 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
       </div>
     )
   }
-
-  // Custom tooltip component
-  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
-    if (active && payload && payload.length) {
-      const time: string | number | Date = payload[0]?.payload?.time || payload[0]?.payload?.x
-
-      return (
-        <div className="bg-background border rounded-md shadow-md p-3">
-          <p className="text-sm font-medium">{formatTime(time)}</p>
-          <div className="mt-2 space-y-1">
-            {payload.map((entry, index) => {
-              // Handle player count data
-              if (entry.dataKey === "y" && entry.name === "Player Count") {
-                return (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#f97316" }} />
-                    <span className="text-sm">Players: {entry.value}</span>
-                  </div>
-                )
-              }
-
-              // Handle FPS data
-              if (entry.payload.player && entry.value) {
-                return (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
-                    <span className="text-sm">
-                      {entry.payload.player}: {entry.value} FPS
-                    </span>
-                  </div>
-                )
-              }
-
-              return null
-            })}
-          </div>
-        </div>
-      )
-    }
-    return null
-  }
-
-  // Create custom legend items
-  const legendItems: LegendItem[] = []
-
-  players.forEach((player) => {
-    // Add player data series
-    legendItems.push({
-      id: player,
-      value: player,
-      color: playerColors[player],
-      type: "scatter",
-      dataKey: player,
-      visible: visibleSeries[player] || false,
-    })
-
-    // Add trend line
-    legendItems.push({
-      id: `${player} (trend)`,
-      value: `${player} (trend)`,
-      color: playerColors[player],
-      type: "line",
-      dataKey: `${player} (trend)`,
-      dashed: true,
-      visible: visibleSeries[`${player} (trend)`] || false,
-    })
-  })
-
-  // Add player count to legend
-  if (processedPlayerCountData.length > 0) {
-    legendItems.push({
-      id: "playerCount",
-      value: "Player Count",
-      color: "#f97316", // orange-500
-      type: "line",
-      dataKey: "playerCount",
-      visible: visibleSeries["playerCount"] || false,
-    })
-  }
-
-  // Calculate reference line values
-  const referenceLines: number[] = [45, 30, 15].filter((fps) => {
-    // Only show reference lines that are within the domain
-    return fps >= domain.y[0] && fps <= domain.y[1]
-  })
 
   return (
     <div className="flex flex-col h-full">
@@ -346,7 +368,7 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
               ))}
 
             {/* Player data points */}
-            {players.map(
+            {debouncedPlayers.map(
               (player) =>
                 visibleSeries[player] &&
                 allData[player] &&
@@ -365,7 +387,7 @@ export function FpsChart({ players, getPlayerData, playerCountData }: FpsChartPr
             )}
 
             {/* Trend lines */}
-            {players.map(
+            {debouncedPlayers.map(
               (player) =>
                 visibleSeries[`${player} (trend)`] &&
                 trendData[player] &&

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FpsChart } from "@/components/fps-chart"
@@ -9,6 +9,7 @@ import { LogUploader } from "@/components/log-uploader"
 import { parseLogFile } from "@/lib/log-parser"
 import { PlayerSelector } from "@/components/player-selector"
 import { calculateTrendLine } from "@/lib/trend-calculator"
+import { useDebounce } from "@/hooks/use-debounce"
 import type {
   LogData,
   FpsEntry,
@@ -23,42 +24,52 @@ export default function Home() {
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([])
   const [prefix, setPrefix] = useState<string>("MWG_")
 
-  const handleFileProcessed = (data: string): void => {
-    try {
-      const processedData: LogData = parseLogFile(data, prefix)
-      setLogData(processedData)
+  // Debounce selected players to prevent frequent recalculations
+  const debouncedSelectedPlayers = useDebounce(selectedPlayers, 100)
 
-      // Auto-select first player if available
-      if (processedData.players.length > 0) {
-        setSelectedPlayers([processedData.players[0]])
+  const handleFileProcessed = useCallback(
+    (data: string): void => {
+      try {
+        const processedData: LogData = parseLogFile(data, prefix)
+        setLogData(processedData)
+
+        // Auto-select first player if available
+        if (processedData.players.length > 0) {
+          setSelectedPlayers([processedData.players[0]])
+        }
+      } catch (error) {
+        console.error("Error processing log file:", error)
       }
-    } catch (error) {
-      console.error("Error processing log file:", error)
-    }
-  }
+    },
+    [prefix],
+  )
 
-  const getPlayerData = (playerName: string): PlayerData => {
-    if (!logData || !logData.entries) return { data: [], trend: [] }
+  // Memoize the getPlayerData function to prevent unnecessary recalculations
+  const getPlayerData = useCallback(
+    (playerName: string): PlayerData => {
+      if (!logData || !logData.entries) return { data: [], trend: [] }
 
-    try {
-      const playerData: PlayerDataPoint[] = logData.entries
-        .filter((entry) => entry.type === "fps" && (entry as FpsEntry).player === playerName)
-        .map((entry) => ({
-          time: entry.time,
-          fps: (entry as FpsEntry).fps,
-        }))
+      try {
+        const playerData: PlayerDataPoint[] = logData.entries
+          .filter((entry) => entry.type === "fps" && (entry as FpsEntry).player === playerName)
+          .map((entry) => ({
+            time: entry.time,
+            fps: (entry as FpsEntry).fps,
+          }))
 
-      const trendData: PlayerDataPoint[] = calculateTrendLine(playerData)
+        const trendData: PlayerDataPoint[] = calculateTrendLine(playerData)
 
-      return {
-        data: playerData,
-        trend: trendData,
+        return {
+          data: playerData,
+          trend: trendData,
+        }
+      } catch (error) {
+        console.error(`Error getting data for player ${playerName}:`, error)
+        return { data: [], trend: [] }
       }
-    } catch (error) {
-      console.error(`Error getting data for player ${playerName}:`, error)
-      return { data: [], trend: [] }
-    }
-  }
+    },
+    [logData],
+  )
 
   // Extract player count data from log entries
   const playerCountData = useMemo<PlayerCountDataPoint[]>(() => {
@@ -76,6 +87,11 @@ export default function Home() {
       return []
     }
   }, [logData])
+
+  // Handle player selection changes
+  const handlePlayerSelectionChange = useCallback((players: string[]): void => {
+    setSelectedPlayers(players)
+  }, [])
 
   return (
     <main className="container mx-auto py-8 px-4">
@@ -124,7 +140,7 @@ export default function Home() {
                 <PlayerSelector
                   players={logData.players || []}
                   selectedPlayers={selectedPlayers}
-                  onSelectionChange={setSelectedPlayers}
+                  onSelectionChange={handlePlayerSelectionChange}
                 />
               </CardContent>
             </Card>
@@ -144,7 +160,7 @@ export default function Home() {
                   <TabsContent value="individual" className="pt-4">
                     <div className="h-[600px] flex flex-col">
                       <FpsChart
-                        players={selectedPlayers}
+                        players={debouncedSelectedPlayers}
                         getPlayerData={getPlayerData}
                         playerCountData={playerCountData}
                       />
@@ -153,7 +169,7 @@ export default function Home() {
                   <TabsContent value="average" className="pt-4">
                     <div className="h-[600px] flex flex-col">
                       <AverageFpsChart
-                        players={selectedPlayers.map((p) => ({ name: p }))}
+                        players={debouncedSelectedPlayers.map((p) => ({ name: p }))}
                         getPlayerData={getPlayerData}
                         playerCountData={playerCountData}
                       />
@@ -161,7 +177,7 @@ export default function Home() {
                   </TabsContent>
                   <TabsContent value="stats" className="pt-4">
                     <div className="grid gap-4">
-                      {selectedPlayers.map((player) => {
+                      {debouncedSelectedPlayers.map((player) => {
                         try {
                           const playerData: PlayerDataPoint[] = getPlayerData(player).data
                           if (playerData.length === 0) {

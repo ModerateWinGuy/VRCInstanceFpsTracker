@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useCallback, memo } from "react"
 import {
   CartesianGrid,
   ScatterChart,
@@ -16,12 +16,87 @@ import { Button } from "@/components/ui/button"
 import { TrendingUp, TrendingDown, Users } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
+import { useDebounce } from "@/hooks/use-debounce"
 import type { AverageFpsChartProps, ChartDataPoint, TrendDataPoint, ChartDomain, CustomTooltipProps } from "@/lib/types"
 
 // Define the window size for the running average (in milliseconds)
 const DEFAULT_WINDOW_SIZE: number = 30 * 1000 // 30 seconds
 // Define the default smoothing factor (higher = smoother)
 const DEFAULT_SMOOTHING_FACTOR: number = 6
+
+// Format the time for display - moved outside component to prevent recreation
+const formatTime = (timestamp: any): string => {
+  if (!timestamp) return ""
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+  } catch (error) {
+    console.error("Error formatting time:", error)
+    return ""
+  }
+}
+
+// Memoize the CustomTooltip component to prevent unnecessary re-renders
+const CustomTooltip = memo(({ active, payload }: CustomTooltipProps) => {
+  if (active && payload && payload.length > 0) {
+    const time: string | number | Date = payload[0]?.payload?.time || payload[0]?.payload?.x
+
+    return (
+      <div className="bg-background border rounded-md shadow-md p-3">
+        <p className="text-sm font-medium">{formatTime(time)}</p>
+        <div className="mt-2 space-y-1">
+          {payload.map((entry, index) => {
+            // Handle player count data
+            if (entry.dataKey === "y" && entry.name === "Player Count") {
+              return (
+                <div key={index} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#f97316" }} />
+                  <span className="text-sm">Players: {entry.value}</span>
+                </div>
+              )
+            }
+
+            // Handle FPS data
+            if (entry.name === "Average FPS" && entry.value) {
+              const data = entry.payload
+              return (
+                <div key={index} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                  <span className="text-sm">Average: {entry.value.toFixed(1)} FPS</span>
+                  {data.rawY !== undefined && data.rawY !== data.y && (
+                    <span className="text-xs text-muted-foreground">(raw: {data.rawY.toFixed(1)})</span>
+                  )}
+                </div>
+              )
+            }
+
+            // Handle trend line
+            if (entry.name === "Trend" && entry.value) {
+              return (
+                <div key={index} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#10b981", borderStyle: "dashed" }} />
+                  <span className="text-sm">Trend: {entry.value.toFixed(1)} FPS</span>
+                </div>
+              )
+            }
+
+            return null
+          })}
+
+          {payload[0]?.payload?.pointCount && (
+            <div className="text-xs text-muted-foreground">Data points: {payload[0].payload.pointCount}</div>
+          )}
+          {payload[0]?.payload?.playerCount && payload[0]?.payload?.players && (
+            <div className="text-xs text-muted-foreground">Players: {payload[0].payload.playerCount}</div>
+          )}
+        </div>
+      </div>
+    )
+  }
+  return null
+})
+
+CustomTooltip.displayName = "CustomTooltip"
 
 export function AverageFpsChart({ players, getPlayerData, playerCountData }: AverageFpsChartProps) {
   const [trendLineVisible, setTrendLineVisible] = useState<boolean>(true)
@@ -30,9 +105,15 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
   const [smoothingFactor, setSmoothingFactor] = useState<number>(DEFAULT_SMOOTHING_FACTOR)
   const [playerCountVisible, setPlayerCountVisible] = useState<boolean>(true)
 
+  // Debounce inputs to reduce calculations
+  const debouncedPlayers = useDebounce(players, 100)
+  const debouncedWindowSize = useDebounce(windowSize, 300)
+  const debouncedSmoothingFactor = useDebounce(smoothingFactor, 300)
+  const debouncedPlayerCountData = useDebounce(playerCountData, 100)
+
   // Process data to calculate running average FPS across all players
   const { averageData, trendData, domain, allPoints, processedPlayerCountData, maxPlayerCount } = useMemo(() => {
-    if (players.length === 0) {
+    if (debouncedPlayers.length === 0) {
       return {
         averageData: [],
         trendData: [],
@@ -46,7 +127,7 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
     // Step 1: Collect all data points from all players
     const allDataPoints: ChartDataPoint[] = []
 
-    players.forEach((player) => {
+    debouncedPlayers.forEach((player) => {
       try {
         const { data } = getPlayerData(player.name)
 
@@ -71,7 +152,7 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
 
     // Process player count data
     let maxPlayerCount = 0
-    const processedPlayerCountData: ChartDataPoint[] = playerCountData.map((point) => {
+    const processedPlayerCountData: ChartDataPoint[] = debouncedPlayerCountData.map((point) => {
       const timestamp: number = new Date(point.time).getTime()
       maxPlayerCount = Math.max(maxPlayerCount, point.count)
 
@@ -102,10 +183,15 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
     const endTime: number = allDataPoints[allDataPoints.length - 1].x
 
     // Create time points at regular intervals
-    const interval: number = Math.min(windowSize / 4, 2000) // Quarter window size or 2 seconds, whichever is smaller
+    const interval: number = Math.min(debouncedWindowSize / 4, 2000) // Quarter window size or 2 seconds, whichever is smaller
     const timePoints: number[] = []
 
-    for (let time = startTime; time <= endTime; time += interval) {
+    // Optimize by reducing the number of time points for large datasets
+    const timeRangeValue = endTime - startTime
+    const maxTimePoints = 200 // Limit the number of points to improve performance
+    const step = Math.max(interval, Math.floor(timeRangeValue / maxTimePoints))
+
+    for (let time = startTime; time <= endTime; time += step) {
       timePoints.push(time)
     }
 
@@ -114,11 +200,11 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
       .map((centerTime) => {
         try {
           // Find all points within the window
-          const windowStart: number = centerTime - windowSize / 2
-          const windowEnd: number = centerTime + windowSize / 2
+          const windowStart: number = centerTime - debouncedWindowSize / 2
+          const windowEnd: number = centerTime + debouncedWindowSize / 2
 
           const pointsInWindow: ChartDataPoint[] = allDataPoints.filter(
-            (point) => point.x >= windowStart && point.x <= windowEnd && typeof point.fps === 'number',
+            (point) => point.x >= windowStart && point.x <= windowEnd && typeof point.fps === "number",
           )
 
           if (pointsInWindow.length === 0) {
@@ -130,8 +216,11 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
           const avgFps: number = totalFps / pointsInWindow.length
 
           // Get unique players in this window
-          const playersInWindow: string[] = [...new Set(pointsInWindow.map((p) => p.player).filter((player): player is string =>
-            typeof player === 'string'))]
+          const playersInWindow: string[] = [
+            ...new Set(
+              pointsInWindow.map((p) => p.player).filter((player): player is string => typeof player === "string"),
+            ),
+          ]
 
           return {
             x: centerTime,
@@ -151,9 +240,9 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
       .filter((point): point is NonNullable<typeof point> => point !== undefined)
 
     // Apply smoothing using a rolling average
-    if (runningAverages.length > 0 && smoothingFactor > 0) {
+    if (runningAverages.length > 0 && debouncedSmoothingFactor > 0) {
       const smoothedAverages: ChartDataPoint[] = [...runningAverages] as ChartDataPoint[]
-      const windowRadius: number = Math.floor(smoothingFactor)
+      const windowRadius: number = Math.floor(debouncedSmoothingFactor)
 
       for (let i = 0; i < runningAverages.length; i++) {
         let sum = 0
@@ -164,8 +253,8 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
           // Apply weight based on distance (closer points have more influence)
           const distance: number = Math.abs(i - j)
           const weight: number = 1 / (distance + 1)
-          const point = runningAverages[j];
-          if (point && typeof point.rawY === 'number') {
+          const point = runningAverages[j]
+          if (point && typeof point.rawY === "number") {
             sum += point.rawY * weight
             count += weight
           }
@@ -212,8 +301,9 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
           const intercept: number = (sumY - slope * sumX) / n
 
           // Create trend line points
-          const validAverages: ChartDataPoint[] = runningAverages.filter((point): point is ChartDataPoint =>
-            point !== null && point !== undefined)
+          const validAverages: ChartDataPoint[] = runningAverages.filter(
+            (point): point is ChartDataPoint => point !== null && point !== undefined,
+          )
           if (validAverages.length >= 2) {
             const firstX: number = validAverages[0].x
             const lastX: number = validAverages[validAverages.length - 1].x
@@ -287,44 +377,40 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
       processedPlayerCountData,
       maxPlayerCount,
     }
-  }, [players, getPlayerData, windowSize, smoothingFactor, playerCountData])
+  }, [debouncedPlayers, getPlayerData, debouncedWindowSize, debouncedSmoothingFactor, debouncedPlayerCountData])
 
-  // Format the time for display
-  const formatTime = (timestamp: any): string => {
-    if (!timestamp) return ""
-    try {
-      const date = new Date(timestamp)
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    } catch (error) {
-      console.error("Error formatting time:", error)
-      return ""
-    }
-  }
+  // Toggle trend line visibility with useCallback
+  const toggleTrendLine = useCallback((): void => {
+    setTrendLineVisible((prev) => !prev)
+  }, [])
 
-  // Toggle trend line visibility
-  const toggleTrendLine = (): void => {
-    setTrendLineVisible(!trendLineVisible)
-  }
+  // Toggle reference lines with useCallback
+  const toggleReferenceLines = useCallback((): void => {
+    setShowReferenceLines((prev) => !prev)
+  }, [])
 
-  // Toggle reference lines
-  const toggleReferenceLines = (): void => {
-    setShowReferenceLines(!showReferenceLines)
-  }
+  // Toggle player count visibility with useCallback
+  const togglePlayerCount = useCallback((): void => {
+    setPlayerCountVisible((prev) => !prev)
+  }, [])
 
-  // Toggle player count visibility
-  const togglePlayerCount = (): void => {
-    setPlayerCountVisible(!playerCountVisible)
-  }
-
-  // Change window size
-  const changeWindowSize = (newSize: number): void => {
+  // Change window size with useCallback
+  const changeWindowSize = useCallback((newSize: number): void => {
     setWindowSize(newSize)
-  }
+  }, [])
 
-  // Add a new function to handle smoothing factor changes
-  const handleSmoothingChange = (value: number[]): void => {
+  // Handle smoothing factor changes with useCallback
+  const handleSmoothingChange = useCallback((value: number[]): void => {
     setSmoothingFactor(value[0])
-  }
+  }, [])
+
+  // Calculate reference lines - memoized
+  const referenceLines = useMemo<number[]>(() => {
+    return [45, 30, 15].filter((fps) => {
+      // Only show reference lines that are within the domain
+      return fps >= domain.y[0] && fps <= domain.y[1]
+    })
+  }, [domain.y])
 
   if (players.length === 0) {
     return (
@@ -333,75 +419,6 @@ export function AverageFpsChart({ players, getPlayerData, playerCountData }: Ave
       </div>
     )
   }
-
-  // Custom tooltip component
-  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
-    if (active && payload && payload.length > 0) {
-      const time: string | number | Date = payload[0]?.payload?.time || payload[0]?.payload?.x
-
-      return (
-        <div className="bg-background border rounded-md shadow-md p-3">
-          <p className="text-sm font-medium">{formatTime(time)}</p>
-          <div className="mt-2 space-y-1">
-            {payload.map((entry, index) => {
-              // Handle player count data
-              if (entry.dataKey === "y" && entry.name === "Player Count") {
-                return (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#f97316" }} />
-                    <span className="text-sm">Players: {entry.value}</span>
-                  </div>
-                )
-              }
-
-              // Handle FPS data
-              if (entry.name === "Average FPS" && entry.value) {
-                const data = entry.payload
-                return (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                    <span className="text-sm">Average: {entry.value.toFixed(1)} FPS</span>
-                    {data.rawY !== undefined && data.rawY !== data.y && (
-                      <span className="text-xs text-muted-foreground">(raw: {data.rawY.toFixed(1)})</span>
-                    )}
-                  </div>
-                )
-              }
-
-              // Handle trend line
-              if (entry.name === "Trend" && entry.value) {
-                return (
-                  <div key={index} className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: "#10b981", borderStyle: "dashed" }}
-                    />
-                    <span className="text-sm">Trend: {entry.value.toFixed(1)} FPS</span>
-                  </div>
-                )
-              }
-
-              return null
-            })}
-
-            {payload[0]?.payload?.pointCount && (
-              <div className="text-xs text-muted-foreground">Data points: {payload[0].payload.pointCount}</div>
-            )}
-            {payload[0]?.payload?.playerCount && payload[0]?.payload?.players && (
-              <div className="text-xs text-muted-foreground">Players: {payload[0].payload.playerCount}</div>
-            )}
-          </div>
-        </div>
-      )
-    }
-    return null
-  }
-
-  // Calculate reference line values
-  const referenceLines: number[] = [45, 30, 15].filter((fps) => {
-    // Only show reference lines that are within the domain
-    return fps >= domain.y[0] && fps <= domain.y[1]
-  })
 
   return (
     <div className="flex flex-col h-full">
